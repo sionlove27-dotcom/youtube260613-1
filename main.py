@@ -7,40 +7,54 @@ from kiwipiepy import Kiwi
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 import plotly.express as px
+import os
 
 st.set_page_config(
-    page_title="유튜브 댓글 심층 분석기",
-    page_icon="📊",
-    layout="wide"
+page_title="유튜브 댓글 분석기",
+page_icon="📊",
+layout="wide"
 )
 
-kiwi = Kiwi()
+@st.cache_resource
+def load_kiwi():
+return Kiwi()
 
-# ----------------------
-# 유튜브 URL → 영상 ID
-# ----------------------
+kiwi = load_kiwi()
+
+# -----------------------
+
+# URL → Video ID
+
+# -----------------------
+
 def extract_video_id(url):
+patterns = [
+r"v=([a-zA-Z0-9_-]+)",
+r"youtu.be/([a-zA-Z0-9_-]+)",
+r"shorts/([a-zA-Z0-9_-]+)"
+]
 
-    patterns = [
-        r"v=([a-zA-Z0-9_-]+)",
-        r"youtu\.be/([a-zA-Z0-9_-]+)",
-        r"shorts/([a-zA-Z0-9_-]+)"
-    ]
+```
+for pattern in patterns:
+    match = re.search(pattern, url)
+    if match:
+        return match.group(1)
 
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
+return None
+```
 
-    return None
+# -----------------------
 
+# 댓글 수집
 
-# ----------------------
-# 댓글 가져오기
-# ----------------------
-def get_comments(youtube, video_id, max_comments=1000):
+# -----------------------
 
-    comments = []
+def get_comments(youtube, video_id, max_comments):
+
+```
+comments = []
+
+try:
 
     request = youtube.commentThreads().list(
         part="snippet",
@@ -55,9 +69,9 @@ def get_comments(youtube, video_id, max_comments=1000):
 
         for item in response["items"]:
 
-            text = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
+            comment = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
 
-            comments.append(text)
+            comments.append(comment)
 
             if len(comments) >= max_comments:
                 return comments
@@ -67,268 +81,241 @@ def get_comments(youtube, video_id, max_comments=1000):
             response
         )
 
-    return comments
+except Exception as e:
+    st.error(f"댓글 수집 오류: {e}")
 
+return comments
+```
 
-# ----------------------
-# 키워드 분석
-# ----------------------
+# -----------------------
+
+# 키워드 추출
+
+# -----------------------
+
 def extract_keywords(comments):
 
-    stopwords = {
-        "영상", "진짜", "정말", "너무",
-        "구독", "좋아요", "감사",
-        "생각", "사람", "오늘",
-        "이거", "저거"
-    }
+```
+stopwords = {
+    "영상","진짜","정말","너무",
+    "구독","좋아요","감사",
+    "생각","사람","오늘",
+    "이거","저거"
+}
 
-    nouns = []
+words = []
 
-    for comment in comments:
+for comment in comments:
 
-        try:
+    try:
 
-            tokens = kiwi.tokenize(comment)
+        tokens = kiwi.tokenize(comment)
 
-            for token in tokens:
+        for token in tokens:
 
-                if token.tag.startswith("N"):
+            if token.tag.startswith("N"):
 
-                    word = token.form
+                word = token.form
 
-                    if len(word) >= 2 and word not in stopwords:
-                        nouns.append(word)
+                if len(word) >= 2 and word not in stopwords:
+                    words.append(word)
 
-        except:
-            continue
+    except:
+        pass
 
-    return Counter(nouns)
+return Counter(words)
+```
 
+# -----------------------
 
-# ----------------------
-# 감성 분석
-# ----------------------
+# 감성분석
+
+# -----------------------
+
 positive_words = [
-    "좋다","최고","감동","행복",
-    "재밌다","추천","멋지다",
-    "훌륭","대박"
+"좋다","최고","감동","행복",
+"추천","재밌다","훌륭",
+"멋지다","대박"
 ]
 
 negative_words = [
-    "별로","실망","최악",
-    "불편","짜증","싫다",
-    "아쉽다","문제"
+"별로","실망","최악",
+"짜증","문제","싫다",
+"불편","아쉽다"
 ]
 
 def sentiment_analysis(comments):
 
-    positive = 0
-    negative = 0
+```
+positive = 0
+negative = 0
 
-    for comment in comments:
+for comment in comments:
 
-        for word in positive_words:
-            if word in comment:
-                positive += 1
+    for word in positive_words:
+        if word in comment:
+            positive += 1
 
-        for word in negative_words:
-            if word in comment:
-                negative += 1
+    for word in negative_words:
+        if word in comment:
+            negative += 1
 
-    return positive, negative
+return positive, negative
+```
 
+# -----------------------
 
-# ----------------------
-# 화면
-# ----------------------
+# UI
+
+# -----------------------
 
 st.title("📊 유튜브 댓글 심층 분석기")
 
-st.markdown(
-    "유튜브 링크를 입력하면 댓글을 수집하고 키워드·워드클라우드·감성을 분석합니다."
-)
-
 api_key = st.text_input(
-    "YouTube API Key",
-    type="password"
+"YouTube API Key",
+type="password"
 )
 
 video_url = st.text_input(
-    "유튜브 링크 입력"
+"유튜브 링크 입력"
 )
 
 max_comments = st.slider(
-    "분석할 댓글 수",
-    100,
-    2000,
-    1000,
-    100
+"댓글 수",
+100,
+2000,
+1000,
+100
 )
 
-analyze = st.button("분석 시작")
+if st.button("분석 시작"):
 
-# ----------------------
-# 분석 실행
-# ----------------------
+```
+if not api_key:
+    st.warning("YouTube API Key를 입력하세요.")
+    st.stop()
 
-if analyze:
+video_id = extract_video_id(video_url)
 
-    if not api_key:
-        st.error("YouTube API Key를 입력해주세요.")
-        st.stop()
+if not video_id:
+    st.error("올바른 유튜브 링크가 아닙니다.")
+    st.stop()
 
-    video_id = extract_video_id(video_url)
+youtube = build(
+    "youtube",
+    "v3",
+    developerKey=api_key
+)
 
-    if not video_id:
-        st.error("유효한 유튜브 URL이 아닙니다.")
-        st.stop()
+with st.spinner("댓글 수집 중..."):
 
-    youtube = build(
-        "youtube",
-        "v3",
-        developerKey=api_key
+    comments = get_comments(
+        youtube,
+        video_id,
+        max_comments
     )
 
-    with st.spinner("댓글 수집 중..."):
+if not comments:
+    st.error("댓글을 가져오지 못했습니다.")
+    st.stop()
 
-        comments = get_comments(
-            youtube,
-            video_id,
-            max_comments
-        )
+st.success(f"{len(comments):,}개 댓글 분석 완료")
 
-    if len(comments) == 0:
-        st.error("댓글을 가져올 수 없습니다.")
-        st.stop()
+df = pd.DataFrame({
+    "댓글": comments
+})
 
-    st.success(f"{len(comments):,}개 댓글 분석 완료")
+# 통계
 
-    # 데이터프레임
-    df = pd.DataFrame({
-        "댓글": comments
-    })
+st.header("📈 기본 통계")
 
-    # ----------------------
-    # 통계
-    # ----------------------
+lengths = [len(x) for x in comments]
 
-    st.header("📈 기본 통계")
+col1, col2, col3 = st.columns(3)
 
-    lengths = [len(c) for c in comments]
+col1.metric("댓글 수", len(comments))
+col2.metric("평균 길이", round(sum(lengths)/len(lengths),1))
+col3.metric("최대 길이", max(lengths))
 
-    col1, col2, col3 = st.columns(3)
+# 키워드
 
-    col1.metric("댓글 수", len(comments))
-    col2.metric("평균 길이", round(sum(lengths) / len(lengths), 1))
-    col3.metric("최대 길이", max(lengths))
+st.header("🔥 TOP 키워드")
 
-    # ----------------------
-    # 키워드
-    # ----------------------
+keywords = extract_keywords(comments)
 
-    st.header("🔥 TOP 키워드")
+keyword_df = pd.DataFrame(
+    keywords.most_common(30),
+    columns=["키워드","빈도"]
+)
 
-    keywords = extract_keywords(comments)
+st.dataframe(keyword_df, use_container_width=True)
 
-    keyword_df = pd.DataFrame(
-        keywords.most_common(30),
-        columns=["키워드", "빈도"]
+fig = px.bar(
+    keyword_df.head(20),
+    x="키워드",
+    y="빈도",
+    title="TOP 20 키워드"
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# 워드클라우드
+
+st.header("☁️ 워드클라우드")
+
+if os.path.exists("NanumGothic.ttf"):
+
+    wc = WordCloud(
+        font_path="NanumGothic.ttf",
+        width=1600,
+        height=800,
+        background_color="white"
     )
 
-    st.dataframe(
-        keyword_df,
-        use_container_width=True
+    wc.generate_from_frequencies(dict(keywords))
+
+    fig2, ax = plt.subplots(figsize=(14,7))
+    ax.imshow(wc)
+    ax.axis("off")
+
+    st.pyplot(fig2)
+
+else:
+    st.warning(
+        "NanumGothic.ttf 파일을 프로젝트 폴더에 넣어주세요."
     )
 
-    fig = px.bar(
-        keyword_df.head(20),
-        x="키워드",
-        y="빈도",
-        title="TOP 20 키워드"
-    )
+# 감성분석
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
+st.header("😊 감성 분석")
 
-    # ----------------------
-    # 워드클라우드
-    # ----------------------
+pos, neg = sentiment_analysis(comments)
 
-    st.header("☁️ 한글 워드클라우드")
+sentiment_df = pd.DataFrame({
+    "감정":["긍정","부정"],
+    "개수":[pos,neg]
+})
 
-    try:
+fig3 = px.pie(
+    sentiment_df,
+    names="감정",
+    values="개수"
+)
 
-        wc = WordCloud(
-            font_path="NanumGothic.ttf",
-            width=1600,
-            height=800,
-            background_color="white"
-        )
+st.plotly_chart(fig3, use_container_width=True)
 
-        wc.generate_from_frequencies(
-            dict(keywords)
-        )
+# 댓글
 
-        fig2, ax = plt.subplots(
-            figsize=(14, 7)
-        )
+st.header("💬 원본 댓글")
 
-        ax.imshow(wc)
-        ax.axis("off")
+st.dataframe(df, use_container_width=True)
 
-        st.pyplot(fig2)
+csv = df.to_csv(index=False).encode("utf-8-sig")
 
-    except Exception as e:
-
-        st.error(
-            "NanumGothic.ttf 파일을 프로젝트 폴더에 넣어주세요."
-        )
-
-    # ----------------------
-    # 감성 분석
-    # ----------------------
-
-    st.header("😊 감성 분석")
-
-    pos, neg = sentiment_analysis(comments)
-
-    sentiment_df = pd.DataFrame({
-        "감정": ["긍정", "부정"],
-        "개수": [pos, neg]
-    })
-
-    fig3 = px.pie(
-        sentiment_df,
-        names="감정",
-        values="개수",
-        title="감성 비율"
-    )
-
-    st.plotly_chart(
-        fig3,
-        use_container_width=True
-    )
-
-    # ----------------------
-    # 댓글 데이터
-    # ----------------------
-
-    st.header("💬 원본 댓글")
-
-    st.dataframe(
-        df,
-        use_container_width=True
-    )
-
-    csv = df.to_csv(
-        index=False
-    ).encode("utf-8-sig")
-
-    st.download_button(
-        label="CSV 다운로드",
-        data=csv,
-        file_name="youtube_comments.csv",
-        mime="text/csv"
-    )
+st.download_button(
+    "CSV 다운로드",
+    csv,
+    "youtube_comments.csv",
+    "text/csv"
+)
+```
