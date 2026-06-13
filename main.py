@@ -17,7 +17,7 @@ layout="wide"
 
 @st.cache_resource
 def load_kiwi():
-return Kiwi()
+    return Kiwi()
 
 kiwi = load_kiwi()
 
